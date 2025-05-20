@@ -1,8 +1,12 @@
 import requests
+import os
 from datetime import datetime, timedelta
 
-# Configuration
-TOKEN = 'YOUR_KOBO_TOKEN'
+# Lire le token d'environnement (fourni par GitHub Actions)
+TOKEN = os.environ.get('KOBO_TOKEN')
+if not TOKEN:
+    raise ValueError("KOBO_TOKEN is not set in environment variables.")
+
 BASE_URL = 'https://eu.kobotoolbox.org/api/v2/assets/'
 HEADERS = {'Authorization': f'Token {TOKEN}'}
 
