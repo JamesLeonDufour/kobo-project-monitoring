@@ -52,3 +52,10 @@ print(f"Projects updated: {len(updated_projects)}")
 print(f"Projects skipped (already named correctly): {len(skipped_projects)}")
 print("===================")
 print("Done.")
+
+with open("logs/project_update_log.txt", "a") as log_file:
+    log_file.write(f"\n=== {datetime.utcnow()} ===\n")
+    log_file.write(f"Projects created in the last 24h: {len(recent_projects)}\n")
+    log_file.write(f"Projects updated: {len(updated_projects)}\n")
+    log_file.write(f"Projects skipped: {len(skipped_projects)}\n")
+    log_file.write("===========================\n")
