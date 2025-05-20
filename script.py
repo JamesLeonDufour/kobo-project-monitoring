@@ -53,6 +53,10 @@ print(f"Projects skipped (already named correctly): {len(skipped_projects)}")
 print("===================")
 print("Done.")
 
+# Ensure the 'logs' directory exists
+os.makedirs("logs", exist_ok=True)
+
+# Then write to the log file
 with open("logs/project_update_log.txt", "a") as log_file:
     log_file.write(f"\n=== {datetime.utcnow()} ===\n")
     log_file.write(f"Projects created in the last 24h: {len(recent_projects)}\n")
