@@ -1,0 +1,29 @@
+name: Auto Update Projects
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Exécution tous les jours à minuit UTC
+  workflow_dispatch:  # Permet aussi de lancer l'action manuellement via l'interface GitHub
+
+jobs:
+  update-projects:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'  # Utiliser la version Python que tu préfères
+
+    - name: Install dependencies
+      run: |
+        pip install requests
+
+    - name: Run the Python script
+      env:
+        KOBO_TOKEN: ${{ secrets.KOBO_TOKEN }}  # Assurez-vous d'ajouter le TOKEN comme secret
+      run: |
+        python script.py  # Remplace "script.py" par le nom de ton fichier Python
