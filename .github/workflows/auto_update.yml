@@ -27,3 +27,11 @@ jobs:
         KOBO_TOKEN: ${{ secrets.KOBO_TOKEN }}  # Assurez-vous d'ajouter le TOKEN comme secret
       run: |
         python script.py  # Remplace "script.py" par le nom de ton fichier Python
+
+- name: Commit logs
+  run: |
+    git config --global user.name "github-actions"
+    git config --global user.email "actions@github.com"
+    git add logs/project_update_log.txt
+    git commit -m "Update log on $(date)"
+    git push
