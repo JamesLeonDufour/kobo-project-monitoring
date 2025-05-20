@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 # Configuration
 TOKEN = 'YOUR_KOBO_TOKEN'
-BASE_URL = 'https://kf.kobotoolbox.org/api/v2/assets/'
+BASE_URL = 'https://eu.kobotoolbox.org/api/v2/assets/'
 HEADERS = {'Authorization': f'Token {TOKEN}'}
 
 # Récupérer les projets
