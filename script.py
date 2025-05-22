@@ -38,7 +38,7 @@ SMTP_PORT = int(os.environ.get('SMTP_PORT', 587)) # Default to 587 if not explic
 
 # KoboToolbox API Base URL:
 # This is the base endpoint for KoboToolbox assets (projects).
-BASE_URL = 'https://eu.kobotoolbox.org/api/v2/assets/'
+BASE_API_URL = 'https://eu.kobotoolbox.org/api/v2/assets/' # Renamed for clarity
 
 # API Request Headers:
 # Defines the authorization token and expected response format.
@@ -84,17 +84,18 @@ def send_email_notification(subject, body, sender, password, receivers, smtp_ser
 # ==============================================================================
 critical_error_occurred = False
 error_details = ""
-total_projects_fetched_from_api = 0 # Track total across all pages
+total_projects_fetched_from_api = 0 # Track total count reported by API after filters
 
 print(f"[{datetime.utcnow()}] KoboToolbox Project Auto-Updater Script Started.")
 print(f"[{datetime.utcnow()}] Current working directory: {os.getcwd()}")
 print(f"[{datetime.utcnow()}] KOBO_TOKEN loaded (length: {len(TOKEN) if TOKEN else 0}).")
 print(f"[{datetime.utcnow()}] Project Title Filter set to: '{FILTER_TITLE_SUBSTRING}'" if FILTER_TITLE_SUBSTRING else f"[{datetime.utcnow()}] No Project Title Filter applied (all projects considered).")
 
-# --- Step 1: Fetch ALL projects from KoboToolbox API with pagination ---
-print(f"[{datetime.utcnow()}] Fetching all projects from KoboToolbox API (handling pagination)...")
-all_projects_data = []
-next_page_url = BASE_URL # Start with the base URL for the first page
+# --- Step 1: Construct API URL with asset_type filter and Fetch ALL projects with pagination ---
+initial_api_url = f"{BASE_API_URL}?asset_type=survey" # Filter by asset_type=survey directly in the URL
+print(f"[{datetime.utcnow()}] Fetching all 'survey' projects from KoboToolbox API (handling pagination)...")
+all_survey_projects = [] # Store projects that are already filtered by asset_type
+next_page_url = initial_api_url # Start with the base URL including asset_type filter
 
 try:
     while next_page_url:
@@ -103,21 +104,21 @@ try:
         response.raise_for_status()
         page_data = response.json()
         
-        total_projects_fetched_from_api = page_data.get('count', 0) # Update total count from API
-        all_projects_data.extend(page_data['results'])
+        total_projects_fetched_from_api = page_data.get('count', 0) # Update total count from API (this will be the total 'survey' count)
+        all_survey_projects.extend(page_data['results']) # Extend with results for the current page
         next_page_url = page_data['next'] # Get URL for the next page, or None if last page
         
-        print(f"[{datetime.utcnow()}] Fetched {len(page_data['results'])} projects on this page. Total collected: {len(all_projects_data)}.")
+        print(f"[{datetime.utcnow()}] Fetched {len(page_data['results'])} 'survey' projects on this page. Total collected: {len(all_survey_projects)}.")
 
-    print(f"[{datetime.utcnow()}] Successfully retrieved {len(all_projects_data)} projects from KoboToolbox across all pages (API reported total: {total_projects_fetched_from_api}).")
+    print(f"[{datetime.utcnow()}] Successfully retrieved {len(all_survey_projects)} 'survey' projects from KoboToolbox across all pages (API reported total 'survey' count: {total_projects_fetched_from_api}).")
 
 except requests.exceptions.RequestException as e:
     critical_error_occurred = True
-    error_details = f"Failed to fetch projects from KoboToolbox API during pagination. Error: {e}"
+    error_details = f"Failed to fetch 'survey' projects from KoboToolbox API during pagination. Error: {e}"
     print(f"[{datetime.utcnow()}] ERROR: {error_details}")
     send_email_notification(
         subject="KoboToolbox Project Update Failed: Critical API Fetch Error",
-        body=f"The script encountered a critical error and failed to fetch projects from KoboToolbox API.\nError: {error_details}",
+        body=f"The script encountered a critical error and failed to fetch 'survey' projects from KoboToolbox API.\nError: {error_details}",
         sender=EMAIL_SENDER,
         password=EMAIL_PASSWORD,
         receivers=EMAIL_RECEIVERS,
@@ -126,8 +127,7 @@ except requests.exceptions.RequestException as e:
     )
     exit(1)
 
-# Initialize tracking lists for reporting
-projects_of_type_survey = []
+# Initialize tracking lists for reporting (these now operate on the already-filtered 'survey' projects)
 recent_projects_found = []
 updated_projects_names = []
 skipped_projects_names = []
@@ -138,29 +138,21 @@ now_utc = datetime.utcnow()
 twenty_four_hours_ago = now_utc - timedelta(days=1)
 print(f"[{datetime.utcnow()}] Checking for projects created after: {twenty_four_hours_ago.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
-# --- Step 2: Process each project (only if initial fetch was successful) ---
+# --- Step 2: Process each 'survey' project (after API-side filtering) ---
 if not critical_error_occurred:
-    print(f"[{datetime.utcnow()}] Starting individual project processing loop and filtering...")
-    for project in all_projects_data: # Iterate over ALL projects fetched from all pages
+    print(f"[{datetime.utcnow()}] Starting individual project processing loop and applying title filter...")
+    for project in all_survey_projects: # Iterate over only the survey projects
         current_name = project.get('name', 'N/A')
         project_uid = project.get('uid', 'N/A')
-        asset_type = project.get('asset_type') # Get the asset_type
 
-        # --- Filter 1: By asset_type (only "survey" assets) ---
-        if asset_type != "survey":
-            # print(f"[{datetime.utcnow()}] → Skipped (not a survey): '{current_name}' (Type: {asset_type})")
-            continue # Skip to the next project if it's not a survey
-
-        projects_of_type_survey.append(project) # Keep track of survey projects for summary
-
-        # --- Filter 2: By optional project title substring ---
-        if FILTER_TITLE_SUBSTRING: 
+        # --- Filter 1: By optional project title substring (Python-side filter) ---
+        if FILTER_TITLE_SUBSTRING:
             if FILTER_TITLE_SUBSTRING.lower() not in current_name.lower():
                 # This project does NOT match the title filter. It will be skipped.
                 filtered_out_by_title_projects_names.append(current_name)
                 continue # Skip to the next project, do not process it further.
 
-        # --- Filter 3: Check project creation date for projects that passed previous filters ---
+        # --- Filter 2: Check project creation date for projects that passed title filter ---
         date_created_str = project.get('date_created')
         if not date_created_str:
             print(f"[{datetime.utcnow()}] WARNING: 'date_created' field missing for project '{current_name}' (UID: {project_uid}). Skipping date check.")
@@ -181,7 +173,7 @@ if not critical_error_occurred:
                 new_name = current_name + PROJECT_NAME_SUFFIX
                 print(f"[{datetime.utcnow()}] → Updating project: '{current_name}' (UID: {project_uid}) → '{new_name}'")
                 update_data = {'name': new_name}
-                update_url = BASE_URL + f"{project_uid}/"
+                update_url = BASE_API_URL + f"{project_uid}/" # Use BASE_API_URL
                 
                 # Attempt to patch the project name via API
                 try:
@@ -201,15 +193,14 @@ if not critical_error_occurred:
 summary_message_lines = []
 summary_message_lines.append("===== KoboToolbox Project Update Summary =====")
 summary_message_lines.append(f"Run Timestamp (UTC): {now_utc.isoformat()}")
-summary_message_lines.append(f"Overall Status: {'SUCCESS' if not critical_error_occurred else 'FAILED'}")
+summary_message_lines.append(f"Overall Status: **{'SUCCESS' if not critical_error_occurred else 'FAILED'}**")
 
-# New: Summary of filtering steps
-summary_message_lines.append(f"Total Projects Fetched from KoboToolbox API: {total_projects_fetched_from_api}")
-summary_message_lines.append(f"Projects Filtered by Asset Type ('survey'): {len(projects_of_type_survey)} surveys found")
+# Clarified summary output after API-side filtering
+summary_message_lines.append(f"Total 'survey' Projects Fetched from API: {total_projects_fetched_from_api}")
 
 if FILTER_TITLE_SUBSTRING:
     summary_message_lines.append(f"Project Title Filter Applied: '{FILTER_TITLE_SUBSTRING}' (case-insensitive)")
-    summary_message_lines.append(f"Projects NOT Matching Title Filter: {len(filtered_out_by_title_projects_names)}")
+    summary_message_lines.append(f" 'survey' Projects NOT Matching Title Filter: {len(filtered_out_by_title_projects_names)}")
 else:
     summary_message_lines.append("Project Title Filter: None applied")
 
@@ -225,6 +216,9 @@ print(full_console_summary)
 # ==============================================================================
 # CSV LOGGING
 # ==============================================================================
+# Note: The CSV log will still contain all columns for comprehensive data,
+# even if some are not displayed in the console/email summary for brevity.
+
 print(f"[{datetime.utcnow()}] Attempting to write CSV log...")
 log_dir = "logs"
 log_file_path = os.path.join(log_dir, "project_update_log.csv")
@@ -240,26 +234,24 @@ except OSError as e:
 csv_headers = [
     "Timestamp (UTC)",
     "Status",
-    "Total Projects Fetched (API)", # New header for clarity
-    "Projects of Type 'survey'", # New header for clarity
-    "Filter Applied (Title Substring)", # Clarified header name
-    "Projects Not Matching Title Filter", # Clarified header name
-    "Projects Created Last 24h",
-    "Projects Updated",
-    "Projects Skipped"
+    "Total Surveys Fetched (API)", # New header name
+    "Filter Applied (Title Substring)",
+    "Surveys Not Matching Title Filter", # Clarified header name
+    "Surveys Created Last 24h",
+    "Surveys Updated",
+    "Surveys Skipped"
 ]
 
 # Prepare data for the CSV row
 csv_row_data = {
     "Timestamp (UTC)": now_utc.isoformat(),
     "Status": "Success" if not critical_error_occurred else "Failed Initial Fetch",
-    "Total Projects Fetched (API)": total_projects_fetched_from_api, # Use the actual API count
-    "Projects of Type 'survey'": len(projects_of_type_survey),
+    "Total Surveys Fetched (API)": total_projects_fetched_from_api, # Use the actual API count of surveys
     "Filter Applied (Title Substring)": FILTER_TITLE_SUBSTRING if FILTER_TITLE_SUBSTRING else "None",
-    "Projects Not Matching Title Filter": len(filtered_out_by_title_projects_names),
-    "Projects Created Last 24h": len(recent_projects_found),
-    "Projects Updated": len(updated_projects_names),
-    "Projects Skipped": len(skipped_projects_names)
+    "Surveys Not Matching Title Filter": len(filtered_out_by_title_projects_names),
+    "Surveys Created Last 24h": len(recent_projects_found),
+    "Surveys Updated": len(updated_projects_names),
+    "Surveys Skipped": len(skipped_projects_names)
 }
 
 # Write to CSV log file
@@ -293,12 +285,12 @@ email_body_parts.append(f"Run Date: {now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}"
 email_body_parts.append(f"Status: **{'SUCCESS' if not critical_error_occurred else 'FAILED'}**") # Bold status
 
 email_body_parts.append("\n--- Summary of Processing ---")
-email_body_parts.append(f"- Total Projects Fetched from KoboToolbox API: {total_projects_fetched_from_api}")
-email_body_parts.append(f"- Projects of Type 'survey' Found: {len(projects_of_type_survey)}")
+# Updated this line to reflect API-side filtering
+email_body_parts.append(f"- Total 'survey' Projects Fetched from KoboToolbox API: {total_projects_fetched_from_api}")
 
 if FILTER_TITLE_SUBSTRING:
     email_body_parts.append(f"- Project Title Filter Applied: '{FILTER_TITLE_SUBSTRING}' (case-insensitive)")
-    email_body_parts.append(f"- Projects NOT Matching Title Filter: {len(filtered_out_by_title_projects_names)}")
+    email_body_parts.append(f"- 'survey' Projects NOT Matching Title Filter: {len(filtered_out_by_title_projects_names)}")
 else:
     email_body_parts.append("- Project Title Filter: None applied")
 
