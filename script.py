@@ -95,8 +95,8 @@ print(f"[{datetime.utcnow()}] Fetching all projects from KoboToolbox API...")
 try:
     response = requests.get(BASE_URL, headers=HEADERS)
     response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
-    projects = response.json()['results']
-    print(f"[{datetime.utcnow()}] Successfully retrieved {len(projects)} projects.")
+    all_projects = response.json()['results'] # Renamed for clarity: all projects fetched
+    print(f"[{datetime.utcnow()}] Successfully retrieved {len(all_projects)} projects from KoboToolbox.")
 except requests.exceptions.RequestException as e:
     critical_error_occurred = True
     error_details = f"Failed to fetch projects from KoboToolbox API. Error: {e}"
@@ -127,18 +127,18 @@ print(f"[{datetime.utcnow()}] Checking for projects created after: {twenty_four_
 # --- Step 2: Process each project (only if initial fetch was successful) ---
 if not critical_error_occurred:
     print(f"[{datetime.utcnow()}] Starting individual project processing loop...")
-    for project in projects:
+    for project in all_projects: # Iterate over all projects fetched
         current_name = project.get('name', 'N/A') # Safely get project name
         project_uid = project.get('uid', 'N/A')   # Safely get project UID
 
-        # Apply optional title filter
+        # Apply optional title filter FIRST
         if FILTER_TITLE_SUBSTRING:
             if FILTER_TITLE_SUBSTRING.lower() not in current_name.lower():
-                # print(f"[{datetime.utcnow()}] → Filtered out: '{current_name}' (does not contain '{FILTER_TITLE_SUBSTRING}')")
+                # This project does NOT match the title filter. It will be skipped.
                 filtered_out_projects_names.append(current_name)
-                continue # Skip to the next project if it doesn't match the filter
+                continue # Skip to the next project
 
-        # Check project creation date
+        # Check project creation date for projects that passed the title filter
         date_created_str = project.get('date_created')
         if not date_created_str:
             print(f"[{datetime.utcnow()}] WARNING: 'date_created' field missing for project '{current_name}' (UID: {project_uid}). Skipping date check.")
@@ -182,15 +182,17 @@ if not critical_error_occurred:
 summary_message_lines = []
 summary_message_lines.append("===== KoboToolbox Project Update Summary =====")
 summary_message_lines.append(f"Run Timestamp (UTC): {now_utc.isoformat()}")
-summary_message_lines.append(f"Status: {'Success' if not critical_error_occurred else 'Failed Initial Fetch'}")
+summary_message_lines.append(f"Overall Status: {'Success' if not critical_error_occurred else 'Failed Initial Fetch'}")
+summary_message_lines.append(f"Total Projects Retrieved from KoboToolbox: {len(all_projects)}")
 
 if FILTER_TITLE_SUBSTRING:
     summary_message_lines.append(f"Project Title Filter Applied: '{FILTER_TITLE_SUBSTRING}' (case-insensitive)")
-    summary_message_lines.append(f"Projects Filtered Out by Title: {len(filtered_out_projects_names)}")
+    # Clarified wording here
+    summary_message_lines.append(f"Projects NOT Matching Title Filter (skipped from further processing): {len(filtered_out_projects_names)}")
 else:
-    summary_message_lines.append("Project Title Filter: None (all projects considered)")
+    summary_message_lines.append("Project Title Filter: None (all retrieved projects considered)")
 
-summary_message_lines.append(f"Projects created in the last 24h (after title filter): {len(recent_projects_found)}")
+summary_message_lines.append(f"Projects Created in Last 24h (after title filter, if any): {len(recent_projects_found)}")
 summary_message_lines.append(f"Projects Successfully Updated: {len(updated_projects_names)}")
 summary_message_lines.append(f"Projects Skipped (already named correctly): {len(skipped_projects_names)}")
 summary_message_lines.append("==============================================")
@@ -212,14 +214,14 @@ try:
     print(f"[{datetime.utcnow()}] Directory '{log_dir}' ensured.")
 except OSError as e:
     print(f"[{datetime.utcnow()}] ERROR: Failed to create directory '{log_dir}': {e}")
-    # Continue script; if directory creation fails, CSV write will also fail, but print more context.
 
 # Define CSV headers for the tabular log
 csv_headers = [
     "Timestamp (UTC)",
     "Status",
+    "Total Projects Retrieved", # New column for clarity
     "Filter Applied",
-    "Projects Filtered Out by Title",
+    "Projects Not Matching Title Filter", # Clarified column name
     "Projects Created Last 24h",
     "Projects Updated",
     "Projects Skipped"
@@ -229,8 +231,9 @@ csv_headers = [
 csv_row_data = {
     "Timestamp (UTC)": now_utc.isoformat(),
     "Status": "Success" if not critical_error_occurred else "Failed Initial Fetch",
+    "Total Projects Retrieved": len(all_projects), # Added to CSV data
     "Filter Applied": FILTER_TITLE_SUBSTRING if FILTER_TITLE_SUBSTRING else "None",
-    "Projects Filtered Out by Title": len(filtered_out_projects_names),
+    "Projects Not Matching Title Filter": len(filtered_out_projects_names), # Clarified name
     "Projects Created Last 24h": len(recent_projects_found),
     "Projects Updated": len(updated_projects_names),
     "Projects Skipped": len(skipped_projects_names)
@@ -253,23 +256,16 @@ try:
     print(f"[{datetime.utcnow()}] CSV log updated at {log_file_path}")
 except IOError as e:
     print(f"[{datetime.utcnow()}] ERROR: Failed to write to CSV file '{log_file_path}': {e}")
-    # This might indicate permissions issue with the file itself or parent directory.
 
 # ==============================================================================
 # EMAIL NOTIFICATION
 # ==============================================================================
 email_subject = "KoboToolbox Project Update Summary"
+# Only include the high-level summary in the email body
 email_body = f"KoboToolbox Project Update script has finished running.\n\n{full_console_summary}"
 
-# Add detailed project names to the email body for better context
-if updated_projects_names:
-    email_body += "\n\nUpdated Projects:\n" + "\n".join([f"- {name}" for name in updated_projects_names])
-if skipped_projects_names:
-    email_body += "\n\nSkipped Projects (already correctly named):\n" + "\n".join([f"- {name}" for name in skipped_projects_names])
-if filtered_out_projects_names and FILTER_TITLE_SUBSTRING:
-    email_body += f"\n\nProjects Filtered Out by Title ('{FILTER_TITLE_SUBSTRING}'):\n" + "\n".join([f"- {name}" for name in filtered_out_projects_names[:20]]) # Limit for email to avoid too long emails
-    if len(filtered_out_projects_names) > 20:
-        email_body += "\n- ... (and more)" # Indicate if list is truncated
+# Removed the detailed lists of updated, skipped, and filtered projects from the email body.
+# They are still visible in the console log and the CSV file.
 
 print(f"[{datetime.utcnow()}] Sending email notification...")
 send_email_notification(
