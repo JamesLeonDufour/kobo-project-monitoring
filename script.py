@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import csv # Import the csv module
 
 # --- Configuration from Environment Variables ---
 # KoboToolbox API Token
@@ -83,9 +84,9 @@ except requests.exceptions.RequestException as e:
 
 # Initialize tracking lists only if initial fetch was successful
 recent_projects = []
-updated_projects = []
-skipped_projects = []
-filtered_out_projects = []
+updated_projects_names = [] # Store names for email and summary
+skipped_projects_names = [] # Store names for email and summary
+filtered_out_projects_names = [] # Store names for email and summary
 
 # Time window for "recent" projects (last 24 hours)
 now = datetime.utcnow()
@@ -100,7 +101,7 @@ if not critical_error_occurred:
         # Apply title filter if specified
         if FILTER_TITLE_SUBSTRING:
             if FILTER_TITLE_SUBSTRING.lower() not in current_name.lower():
-                filtered_out_projects.append(current_name)
+                filtered_out_projects_names.append(current_name)
                 continue # Skip to the next project if it doesn't match the filter
 
         # Check if project was created in the last 24 hours
@@ -111,7 +112,7 @@ if not critical_error_occurred:
             continue # Skip this project if date parsing fails
 
         if date_created > yesterday:
-            recent_projects.append(project)
+            recent_projects.append(project) # Keep full project object here if needed elsewhere
             
             # Define the suffix once
             SUFFIX = " - To Be Verified"
@@ -125,52 +126,84 @@ if not critical_error_occurred:
                 try:
                     update_response = requests.patch(update_url, headers=HEADERS, json=update_data)
                     update_response.raise_for_status()
-                    updated_projects.append(new_name)
+                    updated_projects_names.append(new_name)
                 except requests.exceptions.RequestException as e:
                     print(f"ERROR: Failed to update project '{current_name}' (UID: {project_uid}): {e}")
                     # Log individual failures but continue processing other projects
             else:
                 print(f"→ Skipped (already named): '{current_name}'")
-                skipped_projects.append(current_name)
+                skipped_projects_names.append(current_name)
         # else:
         #     print(f"→ Skipped (old): '{current_name}' created on {date_created.strftime('%Y-%m-%d %H:%M:%S')}")
 
 
-# --- Summary & Logging ---
+# --- Summary & Console Output ---
 summary_message_lines = []
 summary_message_lines.append("===== Summary =====")
 if FILTER_TITLE_SUBSTRING:
     summary_message_lines.append(f"Filter applied: Only processing projects containing '{FILTER_TITLE_SUBSTRING}' in their title (case-insensitive).")
-    summary_message_lines.append(f"Projects filtered out by title: {len(filtered_out_projects)}")
+    summary_message_lines.append(f"Projects filtered out by title: {len(filtered_out_projects_names)}")
 summary_message_lines.append(f"Projects created in the last 24h (after title filter): {len(recent_projects)}")
-summary_message_lines.append(f"Projects updated: {len(updated_projects)}")
-summary_message_lines.append(f"Projects skipped (already named correctly): {len(skipped_projects)}")
+summary_message_lines.append(f"Projects updated: {len(updated_projects_names)}")
+summary_message_lines.append(f"Projects skipped (already named correctly): {len(skipped_projects_names)}")
 summary_message_lines.append("===================")
 summary_message_lines.append("Done.")
 
-full_summary_text = "\n".join(summary_message_lines)
-print(full_summary_text)
+full_console_summary = "\n".join(summary_message_lines)
+print(full_console_summary)
 
+# --- CSV Logging ---
 # Ensure the 'logs' directory exists
 os.makedirs("logs", exist_ok=True)
+log_file_path = "logs/project_update_log.csv" # Changed to .csv
 
-# Write to the log file
-with open("logs/project_update_log.txt", "a") as log_file:
-    log_file.write(f"\n=== {datetime.utcnow()} ===\n")
-    log_file.write(full_summary_text)
-    log_file.write("\n") # Ensure a newline after summary for proper formatting
+# Define CSV headers
+csv_headers = [
+    "Timestamp (UTC)",
+    "Filter Applied",
+    "Projects Filtered Out by Title",
+    "Projects Created Last 24h",
+    "Projects Updated",
+    "Projects Skipped",
+    "Status" # e.g., Success, Failed Initial Fetch
+]
+
+# Prepare CSV row data
+csv_row_data = {
+    "Timestamp (UTC)": datetime.utcnow().isoformat(),
+    "Filter Applied": FILTER_TITLE_SUBSTRING if FILTER_TITLE_SUBSTRING else "None",
+    "Projects Filtered Out by Title": len(filtered_out_projects_names),
+    "Projects Created Last 24h": len(recent_projects),
+    "Projects Updated": len(updated_projects_names),
+    "Projects Skipped": len(skipped_projects_names),
+    "Status": "Success" if not critical_error_occurred else "Failed Initial Fetch"
+}
+
+# Write to CSV log file
+# Check if file exists to determine if headers are needed
+file_exists = os.path.exists(log_file_path)
+
+with open(log_file_path, "a", newline='') as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=csv_headers)
+    
+    if not file_exists:
+        writer.writeheader() # Write header only if file is new
+    
+    writer.writerow(csv_row_data)
+
+print(f"Log written to {log_file_path}")
 
 # --- Send Email Notification ---
 email_subject = "KoboToolbox Project Update Summary"
-email_body = f"KoboToolbox Project Update script has finished running.\n\n{full_summary_text}"
+email_body = f"KoboToolbox Project Update script has finished running.\n\n{full_console_summary}"
 
-if updated_projects:
-    email_body += "\n\nUpdated Projects:\n" + "\n".join(updated_projects)
-if skipped_projects:
-    email_body += "\n\nSkipped Projects (already correctly named):\n" + "\n".join(skipped_projects)
-if filtered_out_projects and FILTER_TITLE_SUBSTRING:
-    email_body += f"\n\nProjects Filtered Out by Title ('{FILTER_TITLE_SUBSTRING}'):\n" + "\n".join(filtered_out_projects[:20]) # Limit for email
-    if len(filtered_out_projects) > 20:
+if updated_projects_names:
+    email_body += "\n\nUpdated Projects:\n" + "\n".join(updated_projects_names)
+if skipped_projects_names:
+    email_body += "\n\nSkipped Projects (already correctly named):\n" + "\n".join(skipped_projects_names)
+if filtered_out_projects_names and FILTER_TITLE_SUBSTRING:
+    email_body += f"\n\nProjects Filtered Out by Title ('{FILTER_TITLE_SUBSTRING}'):\n" + "\n".join(filtered_out_projects_names[:20]) # Limit for email
+    if len(filtered_out_projects_names) > 20:
         email_body += "\n... (and more)"
 
 send_email_notification(
