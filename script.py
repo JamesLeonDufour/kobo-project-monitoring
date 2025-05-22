@@ -4,23 +4,25 @@ from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import csv # Import the csv module
+import csv
 
 # --- Configuration from Environment Variables ---
-# KoboToolbox API Token
 TOKEN = os.environ.get('KOBO_TOKEN')
 if not TOKEN:
     raise ValueError("KOBO_TOKEN is not set in environment variables.")
 
-# Optional: Filter for project titles (substring match, case-insensitive)
+FILTER_TITLE_SUBSTRING = os.environ.get('KOBO_PROJECT_FILTER_SUBSTRING') # Corrected variable name as per auto_update.yml
+# If you are still using KOBO_PROJECT_FILTER_TITLE, please change it back.
+# The updated auto_update.yml uses KOBO_PROJECT_FILTER_TITLE. I'll revert it to match the README.
+# Reverting to KOBO_PROJECT_FILTER_TITLE to match previous README.md and auto_update.yml
 FILTER_TITLE_SUBSTRING = os.environ.get('KOBO_PROJECT_FILTER_TITLE')
 
-# Email Configuration (read from GitHub Secrets)
+
 EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD') # App password for Gmail/Outlook, or actual password
-EMAIL_RECEIVERS = os.environ.get('EMAIL_RECEIVERS') # Comma-separated list of recipients
-SMTP_SERVER = os.environ.get('SMTP_SERVER') # Read from secret (e.g., smtp.gmail.com)
-SMTP_PORT = int(os.environ.get('SMTP_PORT', 587)) # Read from secret, default to 587 if not set or invalid
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+EMAIL_RECEIVERS = os.environ.get('EMAIL_RECEIVERS')
+SMTP_SERVER = os.environ.get('SMTP_SERVER')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
 
 # --- KoboToolbox API Settings ---
 BASE_URL = 'https://eu.kobotoolbox.org/api/v2/assets/'
@@ -30,24 +32,20 @@ HEADERS = {'Authorization': f'Token {TOKEN}',
 
 # --- Email Sending Function ---
 def send_email_notification(subject, body, sender, password, receivers, smtp_server, smtp_port):
-    """
-    Sends an email notification with the given subject and body.
-    Requires all email configuration parameters to be set.
-    """
     if not all([sender, password, receivers, smtp_server, smtp_port]):
         print("Email credentials (sender, password, receivers, SMTP server, port) not fully set. Skipping email notification.")
         return
 
     msg = MIMEMultipart()
     msg['From'] = sender
-    msg['To'] = receivers # This can be a comma-separated string for multiple recipients
+    msg['To'] = receivers
     msg['Subject'] = subject
 
     msg.attach(MIMEText(body, 'plain'))
 
     try:
         server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls() # Enable TLS encryption
+        server.starttls()
         server.login(sender, password)
         server.send_message(msg)
         server.quit()
@@ -56,21 +54,25 @@ def send_email_notification(subject, body, sender, password, receivers, smtp_ser
         print(f"Failed to send email notification: {e}")
 
 # --- Main Script Logic ---
-# Track if the script encountered a critical error (e.g., initial API fetch failure)
 critical_error_occurred = False
 error_details = ""
+
+print(f"[{datetime.utcnow()}] Script started.")
+print(f"[{datetime.utcnow()}] Current working directory: {os.getcwd()}")
+print(f"[{datetime.utcnow()}] Checking KOBO_TOKEN length: {len(TOKEN) if TOKEN else 0}")
+print(f"[{datetime.utcnow()}] Filter title: {FILTER_TITLE_SUBSTRING if FILTER_TITLE_SUBSTRING else 'None'}")
+
 
 print("Fetching all projects from KoboToolbox API...")
 try:
     response = requests.get(BASE_URL, headers=HEADERS)
-    response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+    response.raise_for_status()
     projects = response.json()['results']
     print(f"Total projects retrieved: {len(projects)}")
 except requests.exceptions.RequestException as e:
     critical_error_occurred = True
     error_details = f"Failed to fetch projects from KoboToolbox API: {e}"
     print(f"ERROR: {error_details}")
-    # Even if critical, try to send an email about the failure
     send_email_notification(
         subject="KoboToolbox Project Update Failed: Initial Fetch Error",
         body=f"The script encountered a critical error and failed to fetch projects from KoboToolbox API.\nError: {error_details}",
@@ -80,41 +82,36 @@ except requests.exceptions.RequestException as e:
         smtp_server=SMTP_SERVER,
         smtp_port=SMTP_PORT
     )
-    exit(1) # Exit the script if initial project fetch fails
+    exit(1)
 
-# Initialize tracking lists only if initial fetch was successful
 recent_projects = []
-updated_projects_names = [] # Store names for email and summary
-skipped_projects_names = [] # Store names for email and summary
-filtered_out_projects_names = [] # Store names for email and summary
+updated_projects_names = []
+skipped_projects_names = []
+filtered_out_projects_names = []
 
-# Time window for "recent" projects (last 24 hours)
 now = datetime.utcnow()
 yesterday = now - timedelta(days=1)
 
-# Process projects (only if no critical error occurred)
 if not critical_error_occurred:
+    print(f"[{datetime.utcnow()}] Starting project processing loop.")
     for project in projects:
         current_name = project['name']
         project_uid = project['uid']
 
-        # Apply title filter if specified
         if FILTER_TITLE_SUBSTRING:
             if FILTER_TITLE_SUBSTRING.lower() not in current_name.lower():
                 filtered_out_projects_names.append(current_name)
-                continue # Skip to the next project if it doesn't match the filter
+                continue
 
-        # Check if project was created in the last 24 hours
         try:
             date_created = datetime.strptime(project['date_created'], '%Y-%m-%dT%H:%M:%S.%fZ')
         except ValueError:
             print(f"WARNING: Could not parse date_created for project '{current_name}' (UID: {project_uid}). Skipping date check.")
-            continue # Skip this project if date parsing fails
+            continue
 
         if date_created > yesterday:
-            recent_projects.append(project) # Keep full project object here if needed elsewhere
+            recent_projects.append(project)
             
-            # Define the suffix once
             SUFFIX = " - To Be Verified"
             
             if not current_name.endswith(SUFFIX):
@@ -129,13 +126,10 @@ if not critical_error_occurred:
                     updated_projects_names.append(new_name)
                 except requests.exceptions.RequestException as e:
                     print(f"ERROR: Failed to update project '{current_name}' (UID: {project_uid}): {e}")
-                    # Log individual failures but continue processing other projects
             else:
                 print(f"→ Skipped (already named): '{current_name}'")
                 skipped_projects_names.append(current_name)
-        # else:
-        #     print(f"→ Skipped (old): '{current_name}' created on {date_created.strftime('%Y-%m-%d %H:%M:%S')}")
-
+    print(f"[{datetime.utcnow()}] Finished project processing loop.")
 
 # --- Summary & Console Output ---
 summary_message_lines = []
@@ -153,9 +147,18 @@ full_console_summary = "\n".join(summary_message_lines)
 print(full_console_summary)
 
 # --- CSV Logging ---
+print(f"[{datetime.utcnow()}] Attempting to write CSV log.")
+log_dir = "logs"
+log_file_path = os.path.join(log_dir, "project_update_log.csv")
+
 # Ensure the 'logs' directory exists
-os.makedirs("logs", exist_ok=True)
-log_file_path = "logs/project_update_log.csv" # Changed to .csv
+try:
+    os.makedirs(log_dir, exist_ok=True)
+    print(f"[{datetime.utcnow()}] Directory '{log_dir}' ensured.")
+except OSError as e:
+    print(f"ERROR: Failed to create directory '{log_dir}': {e}")
+    # Still attempt to write CSV if directory creation fails, but it will likely fail again.
+    # It might indicate a permissions issue on the runner.
 
 # Define CSV headers
 csv_headers = [
@@ -165,7 +168,7 @@ csv_headers = [
     "Projects Created Last 24h",
     "Projects Updated",
     "Projects Skipped",
-    "Status" # e.g., Success, Failed Initial Fetch
+    "Status"
 ]
 
 # Prepare CSV row data
@@ -180,32 +183,39 @@ csv_row_data = {
 }
 
 # Write to CSV log file
-# Check if file exists to determine if headers are needed
 file_exists = os.path.exists(log_file_path)
+print(f"[{datetime.utcnow()}] Log file '{log_file_path}' exists: {file_exists}")
 
-with open(log_file_path, "a", newline='') as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=csv_headers)
-    
-    if not file_exists:
-        writer.writeheader() # Write header only if file is new
-    
-    writer.writerow(csv_row_data)
-
-print(f"Log written to {log_file_path}")
+try:
+    with open(log_file_path, "a", newline='', encoding='utf-8') as csvfile: # Added encoding for robustness
+        writer = csv.DictWriter(csvfile, fieldnames=csv_headers)
+        
+        if not file_exists:
+            writer.writeheader()
+            print(f"[{datetime.utcnow()}] CSV header written.")
+        
+        writer.writerow(csv_row_data)
+        print(f"[{datetime.utcnow()}] CSV row data written.")
+    print(f"[{datetime.utcnow()}] Log written successfully to {log_file_path}")
+except IOError as e:
+    print(f"ERROR: Failed to write to CSV file '{log_file_path}': {e}")
+    # This error might indicate a permissions problem with the file itself
 
 # --- Send Email Notification ---
 email_subject = "KoboToolbox Project Update Summary"
+# Adjust email body to include the actual list of updated/skipped projects more clearly
 email_body = f"KoboToolbox Project Update script has finished running.\n\n{full_console_summary}"
 
 if updated_projects_names:
-    email_body += "\n\nUpdated Projects:\n" + "\n".join(updated_projects_names)
+    email_body += "\n\nUpdated Projects:\n" + "\n".join([f"- {name}" for name in updated_projects_names])
 if skipped_projects_names:
-    email_body += "\n\nSkipped Projects (already correctly named):\n" + "\n".join(skipped_projects_names)
+    email_body += "\n\nSkipped Projects (already correctly named):\n" + "\n".join([f"- {name}" for name in skipped_projects_names])
 if filtered_out_projects_names and FILTER_TITLE_SUBSTRING:
-    email_body += f"\n\nProjects Filtered Out by Title ('{FILTER_TITLE_SUBSTRING}'):\n" + "\n".join(filtered_out_projects_names[:20]) # Limit for email
+    email_body += f"\n\nProjects Filtered Out by Title ('{FILTER_TITLE_SUBSTRING}'):\n" + "\n".join([f"- {name}" for name in filtered_out_projects_names[:20]])
     if len(filtered_out_projects_names) > 20:
-        email_body += "\n... (and more)"
+        email_body += "\n- ... (and more)"
 
+print(f"[{datetime.utcnow()}] Sending email notification.")
 send_email_notification(
     subject=email_subject,
     body=email_body,
@@ -215,3 +225,4 @@ send_email_notification(
     smtp_server=SMTP_SERVER,
     smtp_port=SMTP_PORT
 )
+print(f"[{datetime.utcnow()}] Script finished.")
