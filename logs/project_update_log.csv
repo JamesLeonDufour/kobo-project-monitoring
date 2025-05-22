@@ -1,0 +1,2 @@
+Timestamp (UTC),Status,Total Surveys Fetched (API),Filter Applied (Title Substring),Surveys Not Matching Title Filter,Surveys Created Last 24h,Surveys Updated,Surveys Skipped
+2025-05-22T20:00:00.924010,Success,240,RMNA,239,1,0,1
