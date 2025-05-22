@@ -17,13 +17,14 @@ TOKEN = os.environ.get('KOBO_TOKEN')
 if not TOKEN:
     raise ValueError("KOBO_TOKEN is not set in environment variables. Please configure this GitHub Secret.")
 
-# Optional Project Title Filter:
-# If set, the script will ONLY process projects whose names contain this specified
-# substring. The comparison is case-insensitive.
-# This should be set as a GitHub Secret or environment variable named 'KOBO_PROJECT_FILTER_TITLE'.
-# Example: If set to "Survey 2024", only projects like "My Survey 2024 Data"
-# or "Results for Survey 2024" will be considered.
-FILTER_TITLE_SUBSTRING = os.environ.get('KOBO_PROJECT_FILTER_TITLE')
+# --- Project Title Filter (Directly in Code) ---
+# Set this variable to the substring that project titles must contain to be processed.
+# The comparison is case-insensitive.
+# If you leave it as an empty string (''), no title filtering will be applied.
+# Example: FILTER_TITLE_SUBSTRING = "Annual Survey"
+# Example: FILTER_TITLE_SUBSTRING = "Round 2 Data"
+# Example: FILTER_TITLE_SUBSTRING = "" (No filtering)
+FILTER_TITLE_SUBSTRING = "My Specific Project Name Part" # <--- SET YOUR FILTER STRING HERE
 
 # Email Configuration:
 # These variables are used to send email notifications.
@@ -132,7 +133,12 @@ if not critical_error_occurred:
         project_uid = project.get('uid', 'N/A')   # Safely get project UID
 
         # Apply optional title filter FIRST
-        if FILTER_TITLE_SUBSTRING:
+        # This check determines if the 'FILTER_TITLE_SUBSTRING' (e.g., "My Specific Project Name Part")
+        # is found anywhere within the 'current_name' of the project.
+        # Both strings are converted to lowercase for a case-insensitive comparison.
+        # If the substring is NOT found, the project is added to 'filtered_out_projects_names'
+        # and the 'continue' statement skips the rest of the loop for this project.
+        if FILTER_TITLE_SUBSTRING: # Only apply filter if it's not an empty string
             if FILTER_TITLE_SUBSTRING.lower() not in current_name.lower():
                 # This project does NOT match the title filter. It will be skipped.
                 filtered_out_projects_names.append(current_name)
@@ -172,8 +178,6 @@ if not critical_error_occurred:
             else:
                 print(f"[{datetime.utcnow()}] → Skipped (already named correctly): '{current_name}'")
                 skipped_projects_names.append(current_name)
-        # else:
-        #     print(f"[{datetime.utcnow()}] → Skipped (old): '{current_name}' created on {date_created.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print(f"[{datetime.utcnow()}] Finished individual project processing loop.")
 
 # ==============================================================================
@@ -261,11 +265,7 @@ except IOError as e:
 # EMAIL NOTIFICATION
 # ==============================================================================
 email_subject = "KoboToolbox Project Update Summary"
-# Only include the high-level summary in the email body
 email_body = f"KoboToolbox Project Update script has finished running.\n\n{full_console_summary}"
-
-# Removed the detailed lists of updated, skipped, and filtered projects from the email body.
-# They are still visible in the console log and the CSV file.
 
 print(f"[{datetime.utcnow()}] Sending email notification...")
 send_email_notification(
