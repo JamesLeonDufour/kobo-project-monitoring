@@ -24,7 +24,7 @@ if not TOKEN:
 # Example: FILTER_TITLE_SUBSTRING = "Annual Survey"
 # Example: FILTER_TITLE_SUBSTRING = "Round 2 Data"
 # Example: FILTER_TITLE_SUBSTRING = "" (No filtering)
-FILTER_TITLE_SUBSTRING = "My Specific Project Name Part" # <--- SET YOUR FILTER STRING HERE
+FILTER_TITLE_SUBSTRING = "RMNA" # <--- SET YOUR FILTER STRING HERE
 
 # Email Configuration:
 # These variables are used to send email notifications.
