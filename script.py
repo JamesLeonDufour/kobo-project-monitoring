@@ -24,7 +24,7 @@ if not TOKEN:
 # Example: FILTER_TITLE_SUBSTRING = "Annual Survey"
 # Example: FILTER_TITLE_SUBSTRING = "Round 2 Data"
 # Example: FILTER_TITLE_SUBSTRING = "" (No filtering)
-FILTER_TITLE_SUBSTRING = "RMNA" # <--- SET YOUR FILTER STRING HERE
+FILTER_TITLE_SUBSTRING = "RMNA" # <--- SET YOUR FILTER STRING HERE (e.g., "RMNA" as per your example)
 
 # Email Configuration:
 # These variables are used to send email notifications.
@@ -67,7 +67,7 @@ def send_email_notification(subject, body, sender, password, receivers, smtp_ser
     msg['To'] = receivers # Can handle comma-separated string for multiple recipients
     msg['Subject'] = subject
 
-    msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(body, 'plain')) # Plain text for broader compatibility
 
     try:
         server = smtplib.SMTP(smtp_server, smtp_port)
@@ -118,7 +118,7 @@ except requests.exceptions.RequestException as e:
 recent_projects_found = [] # To store actual project objects if needed, or just names
 updated_projects_names = []
 skipped_projects_names = []
-filtered_out_projects_names = []
+filtered_out_projects_names = [] # These are projects that did NOT match the title filter
 
 # Define the time window for "recent" projects (last 24 hours)
 now_utc = datetime.utcnow()
@@ -133,16 +133,15 @@ if not critical_error_occurred:
         project_uid = project.get('uid', 'N/A')   # Safely get project UID
 
         # Apply optional title filter FIRST
-        # This check determines if the 'FILTER_TITLE_SUBSTRING' (e.g., "My Specific Project Name Part")
+        # If FILTER_TITLE_SUBSTRING is set (not empty), filter projects.
+        # This check determines if the 'FILTER_TITLE_SUBSTRING'
         # is found anywhere within the 'current_name' of the project.
-        # Both strings are converted to lowercase for a case-insensitive comparison.
-        # If the substring is NOT found, the project is added to 'filtered_out_projects_names'
-        # and the 'continue' statement skips the rest of the loop for this project.
-        if FILTER_TITLE_SUBSTRING: # Only apply filter if it's not an empty string
+        # Comparison is case-insensitive.
+        if FILTER_TITLE_SUBSTRING: 
             if FILTER_TITLE_SUBSTRING.lower() not in current_name.lower():
                 # This project does NOT match the title filter. It will be skipped.
                 filtered_out_projects_names.append(current_name)
-                continue # Skip to the next project
+                continue # Skip to the next project, do not process it further.
 
         # Check project creation date for projects that passed the title filter
         date_created_str = project.get('date_created')
@@ -187,12 +186,11 @@ summary_message_lines = []
 summary_message_lines.append("===== KoboToolbox Project Update Summary =====")
 summary_message_lines.append(f"Run Timestamp (UTC): {now_utc.isoformat()}")
 summary_message_lines.append(f"Overall Status: {'Success' if not critical_error_occurred else 'Failed Initial Fetch'}")
-summary_message_lines.append(f"Total Projects Retrieved from KoboToolbox: {len(all_projects)}")
 
 if FILTER_TITLE_SUBSTRING:
     summary_message_lines.append(f"Project Title Filter Applied: '{FILTER_TITLE_SUBSTRING}' (case-insensitive)")
-    # Clarified wording here
-    summary_message_lines.append(f"Projects NOT Matching Title Filter (skipped from further processing): {len(filtered_out_projects_names)}")
+    # Line below is removed from console output
+    # summary_message_lines.append(f"Projects NOT Matching Title Filter (skipped from further processing): {len(filtered_out_projects_names)}")
 else:
     summary_message_lines.append("Project Title Filter: None (all retrieved projects considered)")
 
@@ -208,6 +206,9 @@ print(full_console_summary)
 # ==============================================================================
 # CSV LOGGING
 # ==============================================================================
+# Note: The CSV log will still contain all columns for comprehensive data,
+# even if some are not displayed in the console/email summary for brevity.
+
 print(f"[{datetime.utcnow()}] Attempting to write CSV log...")
 log_dir = "logs"
 log_file_path = os.path.join(log_dir, "project_update_log.csv")
@@ -223,9 +224,9 @@ except OSError as e:
 csv_headers = [
     "Timestamp (UTC)",
     "Status",
-    "Total Projects Retrieved", # New column for clarity
+    "Total Projects Retrieved", # Still in CSV for complete data
     "Filter Applied",
-    "Projects Not Matching Title Filter", # Clarified column name
+    "Projects Not Matching Title Filter", # Still in CSV for complete data
     "Projects Created Last 24h",
     "Projects Updated",
     "Projects Skipped"
@@ -235,9 +236,9 @@ csv_headers = [
 csv_row_data = {
     "Timestamp (UTC)": now_utc.isoformat(),
     "Status": "Success" if not critical_error_occurred else "Failed Initial Fetch",
-    "Total Projects Retrieved": len(all_projects), # Added to CSV data
+    "Total Projects Retrieved": len(all_projects),
     "Filter Applied": FILTER_TITLE_SUBSTRING if FILTER_TITLE_SUBSTRING else "None",
-    "Projects Not Matching Title Filter": len(filtered_out_projects_names), # Clarified name
+    "Projects Not Matching Title Filter": len(filtered_out_projects_names),
     "Projects Created Last 24h": len(recent_projects_found),
     "Projects Updated": len(updated_projects_names),
     "Projects Skipped": len(skipped_projects_names)
@@ -265,12 +266,36 @@ except IOError as e:
 # EMAIL NOTIFICATION
 # ==============================================================================
 email_subject = "KoboToolbox Project Update Summary"
-email_body = f"KoboToolbox Project Update script has finished running.\n\n{full_console_summary}"
+
+# Construct a more visually appealing email body
+email_body_parts = []
+
+# Optional: Add a simple "logo" or banner
+email_body_parts.append("--- KoboToolbox Project Auto-Updater ---")
+email_body_parts.append(f"Run Date: {now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+email_body_parts.append(f"Status: **{'SUCCESS' if not critical_error_occurred else 'FAILED'}**") # Bold status
+
+# Add filter info
+if FILTER_TITLE_SUBSTRING:
+    email_body_parts.append(f"Filter Applied: '{FILTER_TITLE_SUBSTRING}' (case-insensitive)")
+else:
+    email_body_parts.append("Filter Applied: None (all projects considered)")
+
+email_body_parts.append("\n--- Summary of Actions ---")
+email_body_parts.append(f"- New Projects (last 24h & matching filter): {len(recent_projects_found)}")
+email_body_parts.append(f"- Projects Updated: {len(updated_projects_names)}")
+email_body_parts.append(f"- Projects Skipped (already named correctly): {len(skipped_projects_names)}")
+
+email_body_parts.append("\n----------------------------------------")
+email_body_parts.append("See attached CSV log for full details and historical data.")
+
+email_final_body = "\n".join(email_body_parts)
+
 
 print(f"[{datetime.utcnow()}] Sending email notification...")
 send_email_notification(
     subject=email_subject,
-    body=email_body,
+    body=email_final_body, # Use the new formatted body
     sender=EMAIL_SENDER,
     password=EMAIL_PASSWORD,
     receivers=EMAIL_RECEIVERS,
