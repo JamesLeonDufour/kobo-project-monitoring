@@ -1,4 +1,4 @@
-name: Auto Update Projects
+name: Daily scan of new project
 
 on:
   schedule:
