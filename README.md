@@ -1,6 +1,6 @@
 # KoboToolbox Project Monitoring 🤖
 
-This repository contains a Python script and a GitHub Actions workflow designed to automate the process of identifying newly created KoboToolbox survey projects and updating their names to indicate they are "To Be Verified." It efficiently fetches data, provides structured logs, and sends email notifications for each run.
+This repository contains a Python script and a GitHub Actions workflow designed to automate the process of identifying newly created KoboToolbox survey projects and updating their names to indicate they are "To Be Verified." if they met certains criteria. It efficiently fetches data, provides structured logs, and sends email notifications for each run.
 
 ## ✨ How It Works
 
