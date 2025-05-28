@@ -28,7 +28,6 @@ jobs:
     - name: Run the Python script
       env:
         KOBO_TOKEN: ${{ secrets.KOBO_TOKEN }}
-        # Removed KOBO_PROJECT_FILTER_TITLE from here, as it's now set directly in script.py
         
         EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}         
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}     
